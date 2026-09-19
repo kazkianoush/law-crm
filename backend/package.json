@@ -1,0 +1,15 @@
+{
+  "name": "backend",
+  "scripts": {
+    "dev": "bun run --hot src/index.ts"
+  },
+  "dependencies": {
+    "@supabase/server": "^1.7.0",
+    "hono": "^4.13.8"
+  },
+  "devDependencies": {
+    "@prisma/client": "^5.22.0",
+    "@types/bun": "latest",
+    "prisma": "^5.22.0"
+  }
+}
