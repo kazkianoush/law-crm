@@ -7,3 +7,12 @@ datasource db {
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
+
+model Task {
+  id          String   @id @default(uuid())
+  users_id    String
+  title       String
+  description String?
+  status      String
+  due_date    DateTime
+}
