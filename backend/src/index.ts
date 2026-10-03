@@ -9,10 +9,13 @@ const app = new Hono()
 // cors
 app.use('/api/*', cors())
 app.use('/tasks', cors())
+app.use('/tasks/*', cors())
+app.use('/users', cors())
+app.use('/users/*', cors())
 app.use(
   '/api2/*',
   cors({
-    origin: 'http://localhost:3001',
+    origin: 'http://localhost:3000',
     allowHeaders: ['X-Custom-Header', 'Upgrade-Insecure-Requests'],
     allowMethods: ['POST', 'GET', 'OPTIONS'],
     exposeHeaders: ['Content-Length', 'X-Kuma-Revision'],
