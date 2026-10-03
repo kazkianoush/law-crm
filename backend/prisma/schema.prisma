@@ -9,10 +9,12 @@ datasource db {
 }
 
 model Task {
-  id          String   @id @default(uuid())
-  users_id    String
-  title       String
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  users_id    String    @db.Uuid
+  title       String?
   description String?
-  status      String
-  due_date    DateTime
+  status      String?
+  due_date    DateTime? @db.Date
+
+  @@map("tasks")
 }
