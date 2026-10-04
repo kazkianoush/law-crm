@@ -3,7 +3,9 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { API_URL, errorMessage, responseError } from '../lib/api'
+import { useAuth } from '../components/AuthProvider'
+import RequireAuth from '../components/RequireAuth'
+import { apiFetch, errorMessage, responseError } from '../lib/api'
 
 type User = {
   id: string
@@ -16,7 +18,16 @@ const inputClass =
   'w-full rounded-md border border-black/[.15] bg-white px-3 py-2 text-black dark:border-white/[.2] dark:bg-zinc-900 dark:text-zinc-50'
 
 export default function AddTaskPage() {
+  return (
+    <RequireAuth>
+      <AddTaskForm />
+    </RequireAuth>
+  )
+}
+
+function AddTaskForm() {
   const router = useRouter()
+  const { role } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [usersLoading, setUsersLoading] = useState(true)
   const [userId, setUserId] = useState('')
@@ -30,7 +41,7 @@ export default function AddTaskPage() {
   useEffect(() => {
     async function fetchUsers() {
       try {
-        const res = await fetch(`${API_URL}/users`)
+        const res = await apiFetch('/users')
         if (!res.ok) {
           throw await responseError(res, 'Failed to fetch users')
         }
@@ -52,7 +63,7 @@ export default function AddTaskPage() {
     setIsSubmitting(true)
     setFormError(null)
     try {
-      const res = await fetch(`${API_URL}/users/${userId}/tasks`, {
+      const res = await apiFetch(`/users/${userId}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -83,23 +94,25 @@ export default function AddTaskPage() {
           onSubmit={handleSubmit}
           className="flex flex-col gap-4 rounded-lg border border-black/[.08] bg-white p-4 dark:border-white/[.145] dark:bg-zinc-950"
         >
-          <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-            User
-            <select
-              required
-              value={userId}
-              disabled={usersLoading}
-              onChange={(e) => setUserId(e.target.value)}
-              className={inputClass}
-            >
-              {usersLoading && <option value="">Loading users...</option>}
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {role === 'admin' && (
+            <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+              User
+              <select
+                required
+                value={userId}
+                disabled={usersLoading}
+                onChange={(e) => setUserId(e.target.value)}
+                className={inputClass}
+              >
+                {usersLoading && <option value="">Loading users...</option>}
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
             Title
