@@ -2,16 +2,26 @@ import { Hono } from 'hono'
 import { supabase } from './lib/supabase'
 import { prisma } from './lib/prisma'
 import { cors } from 'hono/cors'
+import { requireAuth, scope, type Env } from './middleware/auth'
 
 
-const app = new Hono()
+const app = new Hono<Env>()
 
 // cors
 app.use('/api/*', cors())
-app.use('/tasks', cors())
-app.use('/tasks/*', cors())
-app.use('/users', cors())
-app.use('/users/*', cors())
+
+// Only the frontend may call the task/user routes from a browser.
+// This must come BEFORE requireAuth so the browser's preflight (OPTIONS)
+// request, which carries no token, is answered instead of rejected.
+const appCors = cors({
+  origin: process.env.FRONTEND_ORIGIN ?? 'http://localhost:3001',
+  allowHeaders: ['Content-Type', 'Authorization'],
+  allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+})
+for (const path of ['/tasks', '/tasks/*', '/users', '/users/*']) {
+  app.use(path, appCors)
+  app.use(path, requireAuth)
+}
 app.use(
   '/api2/*',
   cors({
@@ -49,7 +59,8 @@ app.get('/posts/:id', (c) => {
 // Read all tasks
 app.get('/tasks', async (c) => {
   try {
-    const tasks = await prisma.task.findMany()
+    // admin: every task; user: only their own (see scope in middleware/auth.ts)
+    const tasks = await prisma.task.findMany({ where: scope(c) })
     return c.json(tasks)
   } catch (error) {
     console.error(error)
@@ -62,6 +73,9 @@ app.get('/tasks', async (c) => {
 // Read tasks for given user ID
 app.get('/users/:id/tasks', async (c) => {
   const id = c.req.param('id')
+  if (c.get('role') !== 'admin' && id !== c.get('userId')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   try {
     const tasks = await prisma.task.findMany({
       where: { users_id: id }
@@ -77,7 +91,12 @@ app.get('/users/:id/tasks', async (c) => {
 
 // GET users
 app.get('/users', async (c) => {
-  const { data, error } = await supabase.from('users').select('*')
+  // admin: everyone; user: only their own row
+  let query = supabase.from('users').select('*')
+  if (c.get('role') !== 'admin') {
+    query = query.eq('id', c.get('userId'))
+  }
+  const { data, error } = await query
   if (error) {
     console.error(error)
     return c.json({ error: error.message }, 500)
@@ -91,6 +110,10 @@ app.get('/users', async (c) => {
 // CREATE task for given user ID
 app.post('/users/:id/tasks', async (c) => {
   const id = c.req.param('id')
+  // users can only create tasks for themselves; admins can create for anyone
+  if (c.get('role') !== 'admin' && id !== c.get('userId')) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
   const { title, description, status, due_date } = await c.req.json() 
   try {
     const task = await prisma.task.create({
@@ -115,9 +138,18 @@ app.post('/users/:id/tasks', async (c) => {
 app.patch('/tasks/:id', async (c) => {
   const id = c.req.param('id')                     
   const body = await c.req.json()                   
+
+  if (body.title !== undefined && !String(body.title).trim()) {
+    return c.json({ error: 'Title cannot be empty' }, 400)
+  }
+  if (body.due_date !== undefined && isNaN(new Date(body.due_date).getTime())) {
+    return c.json({ error: 'Invalid due date' }, 400)
+  }
+
   try {
-    const existingTask = await prisma.task.findUnique({  
-      where: { id }
+    // scope(c) means a normal user can't find (so can't edit) someone else's task
+    const existingTask = await prisma.task.findFirst({
+      where: { id, ...scope(c) }
     })
 
     if (!existingTask) {
@@ -147,8 +179,9 @@ app.patch('/tasks/:id', async (c) => {
 app.delete('/tasks/:id', async (c) => {
   const id = c.req.param('id')
   try {
-    const existingTask = await prisma.task.findUnique({
-      where: { id }
+    // scope(c) means a normal user can't find (so can't delete) someone else's task
+    const existingTask = await prisma.task.findFirst({
+      where: { id, ...scope(c) }
     })
 
     if (!existingTask) {
