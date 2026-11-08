@@ -8,6 +8,7 @@ const app = new Hono()
 
 // cors
 app.use('/api/*', cors())
+app.use('/tasks', cors())
 app.use(
   '/api2/*',
   cors({
@@ -38,6 +39,19 @@ app.get('/posts/:id', (c) => {
   const id = c.req.param('id')
   c.header('X-Message', 'Hi!')
   return c.text(`You want to see ${page} of ${id}`)
+})
+
+// ------------------------------------------------------------
+
+// Read all tasks
+app.get('/tasks', async (c) => {
+  try {
+    const tasks = await prisma.task.findMany()
+    return c.json(tasks)
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to fetch tasks' }, 500)
+  }
 })
 
 // ------------------------------------------------------------
