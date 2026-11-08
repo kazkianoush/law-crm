@@ -18,7 +18,7 @@ const appCors = cors({
   allowHeaders: ['Content-Type', 'Authorization'],
   allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
 })
-for (const path of ['/tasks', '/tasks/*', '/users', '/users/*']) {
+for (const path of ['/tasks', '/tasks/*', '/users', '/users/*', '/orgs', '/orgs/*']) {
   app.use(path, appCors)
   app.use(path, requireAuth)
 }
@@ -60,7 +60,7 @@ app.get('/posts/:id', (c) => {
 app.get('/tasks', async (c) => {
   try {
     // admin: every task; user: only their own (see scope in middleware/auth.ts)
-    const tasks = await prisma.task.findMany({ where: scope(c) })
+    const tasks = await prisma.tasks.findMany({ where: scope(c) })
     return c.json(tasks)
   } catch (error) {
     console.error(error)
@@ -77,7 +77,7 @@ app.get('/users/:id/tasks', async (c) => {
     return c.json({ error: 'Forbidden' }, 403)
   }
   try {
-    const tasks = await prisma.task.findMany({
+    const tasks = await prisma.tasks.findMany({
       where: { users_id: id }
     })
     return c.json(tasks)
@@ -88,6 +88,28 @@ app.get('/users/:id/tasks', async (c) => {
 })
 
 // ------------------------------------------------------------
+// GET orgs for a given user
+
+app.get('/orgs', async (c) => {
+  const id = c.get('userId')
+  // we want to get all the orgs of this userId
+  
+  try {
+    // get org_memebers objects where user_id is mentioned
+    const user_orgs = await prisma.org_members.findMany({ where: {user_id: id}})
+    //extract org_ids into traversible map
+    const org_ids = user_orgs.map((m) => m.org_id)
+    // match list of orgs if id is orgs_ids list above
+    const orgs = await prisma.orgs.findMany({where: {id: {in: org_ids}}})
+    return c.json(orgs)
+  } catch (error) {
+    console.log(error)
+  }
+})
+
+
+// ------------------------------------------------------------
+
 
 // GET users
 app.get('/users', async (c) => {
@@ -116,7 +138,7 @@ app.post('/users/:id/tasks', async (c) => {
   }
   const { title, description, status, due_date } = await c.req.json() 
   try {
-    const task = await prisma.task.create({
+    const task = await prisma.tasks.create({
       data: {
         users_id: id,
         title,
@@ -134,6 +156,34 @@ app.post('/users/:id/tasks', async (c) => {
 
 // ------------------------------------------------------------
 
+// CREATE an org. Any logged-in user can; they become its owner.
+app.post('/orgs', async (c) => {
+  const { name } = await c.req.json()
+  if (!name || !String(name).trim()) {
+    return c.json({ error: 'Name is required' }, 400)
+  }
+  try {
+    // Nested create writes the org and the owner membership in one transaction,
+    // so an org can never exist without an owner.
+    const org = await prisma.orgs.create({
+      data: {
+        name: String(name).trim(),
+        created_by: c.get('userId'),
+        org_members: { create: { user_id: c.get('userId'), role: 'owner' } },
+      },
+    })
+    return c.json(org, 201)
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to create org' }, 500)
+  }
+})
+
+
+
+
+// ------------------------------------------------------------
+
 // UPDATE task for given task ID
 app.patch('/tasks/:id', async (c) => {
   const id = c.req.param('id')                     
@@ -148,7 +198,7 @@ app.patch('/tasks/:id', async (c) => {
 
   try {
     // scope(c) means a normal user can't find (so can't edit) someone else's task
-    const existingTask = await prisma.task.findFirst({
+    const existingTask = await prisma.tasks.findFirst({
       where: { id, ...scope(c) }
     })
 
@@ -156,7 +206,7 @@ app.patch('/tasks/:id', async (c) => {
       return c.json({ error: 'Task not found' }, 404)
     }
 
-    const updatedTask = await prisma.task.update({   
+    const updatedTask = await prisma.tasks.update({   
       where: { id },
       data: {
         ...(body.title !== undefined && { title: body.title }),
@@ -180,7 +230,7 @@ app.delete('/tasks/:id', async (c) => {
   const id = c.req.param('id')
   try {
     // scope(c) means a normal user can't find (so can't delete) someone else's task
-    const existingTask = await prisma.task.findFirst({
+    const existingTask = await prisma.tasks.findFirst({
       where: { id, ...scope(c) }
     })
 
@@ -188,7 +238,7 @@ app.delete('/tasks/:id', async (c) => {
       return c.json({ error: 'Task not found' }, 404)
     }
 
-    const task = await prisma.task.delete({
+    const task = await prisma.tasks.delete({
       where: { id }
     })
     return c.json(task)

@@ -20,10 +20,10 @@ export default function LoginPage() {
     text: string
   } | null>(null)
 
-  // Already logged in (or just logged in): go to the tasks page.
+  // Already logged in (or just logged in): go choose an organization.
   useEffect(() => {
     if (session) {
-      router.replace('/tasks')
+      router.replace('/orgs')
     }
   }, [session, router])
 
