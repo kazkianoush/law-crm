@@ -2,28 +2,40 @@
 
 import Link from 'next/link'
 import { useAuth } from './AuthProvider'
+import { useEffect, useState } from 'react'
+import { apiFetch, errorMessage, responseError } from '../lib/api'
 
 type Org = {
   id: string
   name: string
-  role: 'owner' | 'admin' | 'member'
+  // GET /orgs doesn't return a role yet; the badge only shows when it does
+  role?: 'owner' | 'admin' | 'member'
 }
-
-// TODO: replace with GET /orgs via apiFetch (it returns the user's orgs;
-// add `role` to the response if you want the badge below).
-// While wiring it up, `isLoading` and `error` below are ready to use.
-const PLACEHOLDER_ORGS: Org[] = [
-  { id: 'placeholder-1', name: 'Acme Law', role: 'owner' },
-  { id: 'placeholder-2', name: 'Smith & Co', role: 'member' },
-]
 
 export default function OrgPicker() {
   const { session } = useAuth()
+  const [orgs, setOrgs] = useState<Org[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // TODO: swap these for real state once the fetch exists
-  const orgs: Org[] = PLACEHOLDER_ORGS
-  const isLoading = false
-  const error: string | null = null
+  // fetch orgs is used to get the organization(s) of a user
+  useEffect(() => {
+    async function fetchOrgs() {
+      try {
+        const res = await apiFetch('/orgs')
+        if (!res.ok) {
+          throw await responseError(res, 'Failed to fetch orgs')
+        }
+        setOrgs(await res.json())
+      } catch (err) {
+        setError(errorMessage(err, 'Failed to fetch orgs'))
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchOrgs()
+  }, [])
 
   const name = session?.user.email?.split('@')[0] ?? 'there'
 
@@ -56,9 +68,11 @@ export default function OrgPicker() {
                   className="flex items-center justify-between rounded-lg border border-black/[.08] bg-white p-4 text-black transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:bg-zinc-950 dark:text-zinc-50 dark:hover:bg-[#1a1a1a]"
                 >
                   <span className="font-medium">{org.name}</span>
-                  <span className="rounded-full bg-black/[.06] px-2 py-0.5 text-xs text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400">
-                    {org.role}
-                  </span>
+                  {org.role && (
+                    <span className="rounded-full bg-black/[.06] px-2 py-0.5 text-xs text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400">
+                      {org.role}
+                    </span>
+                  )}
                 </Link>
               </li>
             ))}

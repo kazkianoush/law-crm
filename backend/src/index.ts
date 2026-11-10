@@ -89,7 +89,9 @@ app.get('/users/:id/tasks', async (c) => {
 
 // ------------------------------------------------------------
 // GET orgs for a given user
-
+  //1. taking the userId, searching orgs_memebers, getting all rows where id matches
+  //2. taking those rows and extracting orgIds
+  //3. using orgIds to return Orgs inside Orgs table.
 app.get('/orgs', async (c) => {
   const id = c.get('userId')
   // we want to get all the orgs of this userId
@@ -104,6 +106,37 @@ app.get('/orgs', async (c) => {
     return c.json(orgs)
   } catch (error) {
     console.log(error)
+  }
+})
+
+app.get('/orgs/:orgId/members', async (c) => {
+  const orgId = c.req.param('orgId')
+    
+  try {
+    // 1. Is the caller the owner in this org? If not, pretend it doesn't exist.
+    const me = await prisma.org_members.findUnique({
+      where: { org_id_user_id: { org_id: orgId, user_id: c.get('userId') }, role: 'owner' },
+    })
+    if (!me) return c.json({ error: 'Not found' }, 404)
+
+    // 2. All rows for this org, joined to public.users in one query
+    const rows = await prisma.org_members.findMany({
+      where: { org_id: orgId },
+      include: { users: true },   // `users` is the relation to public_users
+    })
+
+    // 3. Return only what the UI needs
+    return c.json(
+      rows.map((r) => ({
+        user_id: r.user_id,
+        name: r.users.name,
+        email: r.users.email,
+        role: r.role,
+      }))
+    )
+  } catch (error) {
+    console.error(error)
+    return c.json({ error: 'Failed to fetch members' }, 500)
   }
 })
 
