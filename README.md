@@ -54,7 +54,7 @@ Fill them in as the comments describe.
 
 `.env` and `.env.local` are git-ignored. Only the `.env.example` files are committed.
 
-## 5. Create the database tables
+## 5. Create the database tables (if creating a new project)
 
 Schema changes are numbered SQL files in `backend/db/` (`000_base_tables.sql`, `001_teams.sql`, ...).
 **Do not use `prisma db push`**, which can drop tables it doesn't know about.
