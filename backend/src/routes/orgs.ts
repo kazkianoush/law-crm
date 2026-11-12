@@ -108,3 +108,115 @@ orgRoutes.post('/orgs', async (c) => {
     return c.json({ error: 'Failed to create org' }, 500)
   }
 })
+
+// ------------------------------------------------------------
+
+// ADD a member by email. Only owners/admins. The email must belong to an
+// existing account (a row in public.users); nothing is added otherwise.
+orgRoutes.post('/orgs/:orgId/members', async (c) => {
+  const orgId = c.req.param('orgId')
+  const body = await c.req.json().catch(() => ({}))
+  const email = typeof body.email === 'string' ? body.email.trim() : ''
+  if (!email) return c.json({ error: 'Email is required' }, 400)
+
+  try {
+    // 1. Is the caller in this org? If not, pretend it doesn't exist.
+    const me = await prisma.org_members.findUnique({
+      where: { org_id_user_id: { org_id: orgId, user_id: c.get('userId')}},
+    })
+    if (!me) return c.json({ error: 'Not found' }, 404)
+
+    // 2. Only owners and admins can add people.
+    if (!['owner', 'admin'].includes(me.role)) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+
+    // 3. Does an account with this email exist? (case-insensitive)
+    const user = await prisma.public_users.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+    })
+    if (!user) return c.json({ error: 'No account with that email' }, 404)
+
+    // 4. Already in this org?
+    const existing = await prisma.org_members.findUnique({
+      where: { org_id_user_id: { org_id: orgId, user_id: user.id } },
+    })
+    if (existing) return c.json({ error: 'Already a member' }, 409)
+
+    // 5. Add them as a plain member.
+    const member = await prisma.org_members.create({
+      data: { org_id: orgId, user_id: user.id, role: 'member' },
+    })
+    return c.json(
+      { user_id: member.user_id, name: user.name, email: user.email, role: member.role },
+      201
+    )
+  } catch (error: any) {
+    // two people adding the same account at once: the primary key rejects the second
+    if (error?.code === 'P2002') return c.json({ error: 'Already a member' }, 409)
+    console.error(error)
+    return c.json({ error: 'Failed to add member' }, 500)
+  }
+})
+
+// ------------------------------------------------------------
+
+// CHANGE a member's role. Only owners can. An org must always keep >= 1 owner.
+const ROLES = ['owner', 'admin', 'member']
+
+orgRoutes.patch('/orgs/:orgId/members/:userId', async (c) => {
+  const orgId = c.req.param('orgId')
+  const targetId = c.req.param('userId')
+  const body = await c.req.json().catch(() => ({}))
+  const role = body.role
+
+  if (typeof role !== 'string' || !ROLES.includes(role)) {
+    return c.json({ error: 'Role must be owner, admin or member' }, 400)
+  }
+
+  try {
+    // 1. Is the caller in this org? If not, pretend it doesn't exist.
+    const me = await prisma.org_members.findUnique({
+      where: { org_id_user_id: { org_id: orgId, user_id: c.get('userId') } },
+    })
+    if (!me) return c.json({ error: 'Not found' }, 404)
+
+    // 2. Only owners can change roles.
+    if (me.role !== 'owner') return c.json({ error: 'Forbidden' }, 403)
+
+    // 3. Check + update in one serializable transaction, so two owners demoting
+    //    each other at the same moment can't leave the org with no owner.
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const target = await tx.org_members.findUnique({
+          where: { org_id_user_id: { org_id: orgId, user_id: targetId } },
+        })
+        if (!target) return { status: 404 as const, error: 'Member not found' }
+
+        if (target.role === 'owner' && role !== 'owner') {
+          const owners = await tx.org_members.count({
+            where: { org_id: orgId, role: 'owner' },
+          })
+          if (owners <= 1) {
+            return { status: 409 as const, error: 'An organization needs at least one owner' }
+          }
+        }
+
+        const updated = await tx.org_members.update({
+          where: { org_id_user_id: { org_id: orgId, user_id: targetId } },
+          data: { role },
+        })
+        return { status: 200 as const, member: { user_id: updated.user_id, role: updated.role } }
+      },
+      { isolationLevel: 'Serializable' }
+    )
+
+    if ('error' in result) return c.json({ error: result.error }, result.status)
+    return c.json(result.member)
+  } catch (error: any) {
+    // serializable conflict: someone else changed roles at the same moment
+    if (error?.code === 'P2034') return c.json({ error: 'Please try again' }, 409)
+    console.error(error)
+    return c.json({ error: 'Failed to change role' }, 500)
+  }
+})

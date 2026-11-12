@@ -49,6 +49,7 @@ export function useOrgMembers(orgId: string) {
   const [members, setMembers] = useState<Member[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0) // bump it to refetch (e.g. after adding a member)
 
 
   useEffect(() => {
@@ -68,9 +69,11 @@ export function useOrgMembers(orgId: string) {
     }
 
     fetchMembers()
-  }, [orgId]) // refetch when the org changes
+  }, [orgId, reloadKey]) // refetch when the org changes or refetch() is called
+
+  const refetch = () => setReloadKey((k) => k + 1)
 
   // we then return the memebers to the caller page
-  return { members, isLoading, error }
+  return { members, isLoading, error, refetch }
 }
 

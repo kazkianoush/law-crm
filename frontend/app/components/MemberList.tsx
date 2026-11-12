@@ -1,5 +1,10 @@
 'use client'
 
+import { useState } from 'react'
+import { errorMessage } from '../lib/api'
+
+export const ROLES = ['owner', 'admin', 'member'] as const
+
 // Same shape that GET /orgs/:orgId/members returns.
 export type Member = {
   user_id: string
@@ -12,6 +17,10 @@ type Props = {
   members: Member[]
   isLoading?: boolean
   error?: string | null
+  // Role editing: only pass canEditRoles for owners. The backend enforces it too.
+  canEditRoles?: boolean
+  currentUserId?: string // your own row stays a plain label (no demoting yourself)
+  onChangeRole?: (member: Member, role: string) => Promise<void> // should throw on failure
 }
 
 function initials(name: string) {
@@ -23,8 +32,32 @@ function initials(name: string) {
     .join('')
 }
 
-// Presentational only: give it the data, it draws the list.
-export default function MemberList({ members, isLoading, error }: Props) {
+// Mostly presentational: give it the data, it draws the list. The only state it
+// keeps is which row is saving and the last role-change error.
+export default function MemberList({
+  members,
+  isLoading,
+  error,
+  canEditRoles,
+  currentUserId,
+  onChangeRole,
+}: Props) {
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [roleError, setRoleError] = useState<string | null>(null)
+
+  async function changeRole(member: Member, role: string) {
+    if (!onChangeRole || role === member.role) return
+    setSavingId(member.user_id)
+    setRoleError(null)
+    try {
+      await onChangeRole(member, role)
+    } catch (err) {
+      setRoleError(errorMessage(err, 'Could not change role'))
+    } finally {
+      setSavingId(null)
+    }
+  }
+
   return (
     <section aria-label="Organization members">
       <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -64,12 +97,33 @@ export default function MemberList({ members, isLoading, error }: Props) {
                   </span>
                 )}
               </span>
-              <span className="shrink-0 rounded-full bg-black/[.06] px-2 py-0.5 text-xs text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400">
-                {member.role}
-              </span>
+              {canEditRoles && member.user_id !== currentUserId ? (
+                <select
+                  aria-label={`Role for ${member.name}`}
+                  value={member.role}
+                  disabled={savingId === member.user_id}
+                  onChange={(e) => changeRole(member, e.target.value)}
+                  className="shrink-0 rounded-md border border-black/[.15] bg-white px-1.5 py-0.5 text-xs text-zinc-700 disabled:opacity-60 dark:border-white/[.2] dark:bg-zinc-900 dark:text-zinc-200"
+                >
+                  {ROLES.map((role) => (
+                    <option key={role} value={role}>
+                      {role}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="shrink-0 rounded-full bg-black/[.06] px-2 py-0.5 text-xs text-zinc-600 dark:bg-white/[.08] dark:text-zinc-400">
+                  {member.role}
+                </span>
+              )}
             </li>
           ))}
         </ul>
+      )}
+      {roleError && (
+        <p role="alert" className="mt-2 text-xs text-red-600 dark:text-red-400">
+          {roleError}
+        </p>
       )}
     </section>
   )
